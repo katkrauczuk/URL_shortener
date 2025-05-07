@@ -124,7 +124,6 @@ async def redirect_url(short_path: str, request: Request):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # 1. Buscar a URL no banco
         cur.execute("""
             SELECT id, original_url, expires_at 
             FROM urls 
@@ -138,11 +137,9 @@ async def redirect_url(short_path: str, request: Request):
         
         url_id, original_url, expires_at = url_data
         
-        # 2. Verificar expiração
         if expires_at and expires_at < datetime.now():
             raise HTTPException(status_code=410, detail="URL expirada")
         
-        # 3. Registrar acesso (com todas as informações)
         cur.execute("""
             INSERT INTO access_logs 
             (url_id, accessed_at, ip_address, user_agent) 
@@ -159,13 +156,11 @@ async def redirect_url(short_path: str, request: Request):
         
         print(f"Registro de acesso criado - ID: {log_id}, URL: {short_path}")
         
-        # 4. Redirecionar
         return {"redirect_to": original_url}
         
     except Exception as e:
         if conn:
             conn.rollback()
-        print(f"Erro ao registrar acesso: {str(e)}")
         raise HTTPException(status_code=500, detail="Erro interno ao processar o acesso")
     finally:
         if conn:
@@ -180,7 +175,6 @@ def get_stats(short_path: str, request: Request):
         
         base_url = str(request.base_url).rstrip('/')
         
-        # 1. Obter informações básicas da URL
         cur.execute(
             """SELECT id, original_url FROM urls 
                WHERE short_path = %s""",
@@ -196,7 +190,6 @@ def get_stats(short_path: str, request: Request):
         
         url_id, original_url = url_data
         
-        # 2. Contagem total de acessos e últimos 30 dias
         cur.execute(
             """SELECT 
                   COUNT(*) as total_accesses,
@@ -208,7 +201,6 @@ def get_stats(short_path: str, request: Request):
         counts = cur.fetchone()
         total_accesses, accesses_last_30_days = counts if counts else (0, 0)
         
-        # 3. Obter os últimos 10 acessos (com todos os detalhes)
         cur.execute(
             """SELECT accessed_at, ip_address, user_agent
                FROM access_logs
@@ -218,7 +210,7 @@ def get_stats(short_path: str, request: Request):
             (url_id,)
         )
         access_logs = [{
-            "accessed_at": log[0].isoformat() + "Z",  # Formato ISO com Z (UTC)
+            "accessed_at": log[0].isoformat() + "Z", 
             "ip_address": log[1],
             "user_agent": log[2]
         } for log in cur.fetchall()]
@@ -245,8 +237,6 @@ def delete_url(short_path: str):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        
-        # Primeiro obtemos o ID da URL
         cur.execute("SELECT id FROM urls WHERE short_path = %s", (short_path,))
         url_data = cur.fetchone()
         
@@ -258,12 +248,8 @@ def delete_url(short_path: str):
         
         url_id = url_data[0]
         
-        # Primeiro deletamos os logs associados
         cur.execute("DELETE FROM access_logs WHERE url_id = %s", (url_id,))
-        
-        # Depois deletamos a URL
         cur.execute("DELETE FROM urls WHERE id = %s", (url_id,))
-        
         conn.commit()
         return None
         
@@ -276,6 +262,7 @@ def delete_url(short_path: str):
     finally:
         if 'conn' in locals():
             conn.close()
+
 @app.get("/api/urls", response_model=PaginatedURLResponse)
 def list_urls(
     request: Request,
@@ -289,14 +276,10 @@ def list_urls(
         
         base_url = str(request.base_url).rstrip('/')
 
-        # 1. Contar o total de URLs
+
         cur.execute("SELECT COUNT(*) FROM urls")
         total_items = cur.fetchone()[0]
-
-        # 2. Calcular offset
         offset = (page - 1) * per_page
-
-        # 3. Buscar URLs paginadas
         cur.execute(
             """SELECT id, original_url, short_path, created_at, expires_at 
                FROM urls 
@@ -305,7 +288,6 @@ def list_urls(
             (per_page, offset)
         )
         
-        # 4. Formatar resposta
         items = []
         for url in cur.fetchall():
             items.append({
@@ -326,8 +308,7 @@ def list_urls(
 
     except psycopg2.Error as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro no banco de dados: {e}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     finally:
         if conn:
